@@ -1,0 +1,297 @@
+#include <SBUS.h>
+#include <limits.h>
+#include <AccelStepper.h>
+#include <Servo.h>
+#include <MultiStepper.h>
+
+
+SBUS sbus(Serial);
+const int LED1 = 4;
+const int threshold = 250;
+
+int read_ch_1 = 0;
+//Servo ESC;
+
+long timer = 0;
+bool motorOn = false;
+
+int read_ch_5 = 0;
+int read_ch_6 = 0;
+int read_ch_8 = 0;
+int read_ch_7 = 0;
+Servo motor;
+
+// Define pin connections
+const int dirPin1 = 7;//6;
+const int stepPin1 = 6;//7;
+const int dirPin2 = 5;//4;
+const int stepPin2 = 4;//5;
+bool motorRun = 1;
+
+// Define motor interface type
+#define motorInterfaceType 1
+
+// Creates an instance
+AccelStepper myStepper1(motorInterfaceType, stepPin1, dirPin1);
+AccelStepper myStepper2(motorInterfaceType, stepPin2, dirPin2);
+MultiStepper steppers;
+
+#define ENCODER_PPR 399 // Pulses per rotation for gear shaft (determined experimentally)
+
+const int ENCODERA = 2; // encoder channel A provides pulses
+const int ENCODERB = 3; // encoder channel B provides direction
+
+volatile long pulse = 0;
+
+int interval = 1000;
+long previousMillis = 0;
+long currentMillis = 0;
+int counter = 0;
+
+int rpm = 0;
+int rotation = 0;
+int distance = 0; 
+float stepperspeed = 1000;
+const int maxDistance = 40; // maximum linear distance of auger [mm]
+
+
+
+void setup()
+{
+  pinMode(LED1, OUTPUT);
+
+  Serial.begin(57600);
+    attachInterrupt(digitalPinToInterrupt(2), count_rpm, CHANGE); // counts pulses from encoder
+    attachInterrupt(digitalPinToInterrupt(3), count_rpm, CHANGE); // counts pulses from encoder
+    pulse = 0;
+    previousMillis = millis();
+
+/*
+    myStepper1.setMaxSpeed(1000);
+    myStepper1.setSpeed(1000);
+    myStepper1.setAcceleration(100.0);
+    myStepper1.moveTo(800);
+    */
+    
+    /*
+    myStepper2.setMaxSpeed(1000.0);
+    myStepper2.setSpeed(1000);
+    myStepper2.setAcceleration(100.0);
+    myStepper2.moveTo(800);
+    */
+
+      myStepper2.setMaxSpeed(100);
+      myStepper2.setAcceleration(50);
+      myStepper2.setSpeed(50);
+      myStepper2.moveTo(4680);//5400
+
+      myStepper1.setMaxSpeed(100);
+      myStepper1.setAcceleration(50);
+      myStepper1.setSpeed(50);
+      myStepper1.moveTo(4680);//5400//5500
+
+
+  //cost speed
+  /*
+    myStepper1.setMaxSpeed(1000);
+    myStepper1.setSpeed(1000);
+    
+    myStepper2.setMaxSpeed(1000);
+    myStepper2.setSpeed(1000);
+  */
+
+  // Then give them to MultiStepper to manage
+  steppers.addStepper(myStepper1);
+  steppers.addStepper(myStepper2);
+  
+    
+  
+  motor.attach(3); 
+ 
+ 
+  sbus.begin(); //not having 
+  delay(1000);
+}
+// This is timer2, which triggers ever 1ms and processes the incoming SBUS datastream.
+ISR(TIMER2_COMPA_vect)
+{
+  sbus.process();
+}
+static int minChannel = INT_MAX;
+static int maxChannel = INT_MIN;
+// Scale the S.BUS channel values into the range [0, 255] for use as LED brightness values.
+int getChannel(int channel) {
+  int value = sbus.getChannel(channel);
+  if (value < minChannel) {
+    minChannel = value;
+  }
+  if (value > maxChannel) {
+    maxChannel = value;
+  }
+  float result = value;
+  result -= minChannel;
+  result /= (maxChannel - minChannel);
+  result *= 200;//255;//200;
+  return (int)result;
+}
+
+void loop()
+{ 
+  //READ CHANNELS
+  read_ch_1 = getChannel(1);
+  read_ch_5 = getChannel(5);
+  read_ch_6 = getChannel(6);
+  read_ch_8 = getChannel(8);
+  read_ch_7 = getChannel(7);
+  
+  //LED CHECK
+  
+    //analogWrite(LED1, read_ch_1);
+  
+  /*
+  if (getChannel(5) > 150) 
+  {
+    analogWrite(LED1, 255);
+  }
+  else if(getChannel(5) < 50)
+  {
+    analogWrite(LED1, 0);
+  }*/
+
+  
+//Steppers Test 5/15/23
+
+  if(read_ch_5 > 150)
+  {
+    if (myStepper2.distanceToGo() == 0 && motorRun == 1) 
+    {
+      //motorRun = 0;
+      motor.writeMicroseconds(1500);
+      //try out
+      if(read_ch_7 > 150)
+      {
+        motorRun = 0;
+        myStepper2.setMaxSpeed(1000);
+        myStepper2.setAcceleration(50);
+        myStepper2.setSpeed(100);
+  
+        //try out
+        myStepper1.setMaxSpeed(1000);
+        myStepper1.setAcceleration(50);
+        myStepper1.setSpeed(100);
+        
+        myStepper2.moveTo(-100);//-100 (old auger)//-130
+        myStepper1.moveTo(-100);//-100 (old auger)//-130 
+      }
+    }
+    else
+    { 
+      if(motorRun == 1) 
+      {
+        motor.writeMicroseconds(1950); //clockwise 1950
+      }
+    }
+    myStepper2.run();
+    myStepper1.run();
+  }
+  else if(read_ch_5 < 50)
+  {
+    //new if statement code 5/19/23
+    if(motorRun == 0)
+    {
+      motorRun = 1;
+      myStepper2.setMaxSpeed(100);
+      myStepper2.setAcceleration(50);
+      myStepper2.setSpeed(50);
+
+      myStepper1.setMaxSpeed(100);
+      myStepper1.setAcceleration(50);
+      myStepper1.setSpeed(50);
+      
+      myStepper2.moveTo(4680);//4000//5500
+      myStepper1.moveTo(4680);//4000//5500
+    }
+    motor.writeMicroseconds(1500);
+    //myStepper2.setSpeed(0);
+  }
+  
+
+  //LOOP
+  /*
+  if (getChannel(5) > 150) 
+  {
+    
+    if (myStepper1.distanceToGo() == 0){// && count==0) {
+      myStepper1.setSpeed(0);
+      myStepper2.setSpeed(0);
+      myStepper.moveTo(-myStepper.currentPosition()); //move then stop. Then test move other direction, stop
+      count++;
+      myStepper1.setSpeed(0);
+      myStepper2.setSpeed(0);
+      
+      //set the distance again, reverse it, and stop
+      //motor.writeMicroseconds(1500);
+    } //else { //possibly comment out 
+      //motor.writeMicroseconds(1950);
+      //set speed here based on motor speed
+     // myStepper1.run();
+     // myStepper2.run();
+      //run the motor
+    //}
+    myStepper1.setSpeed(1000);
+    //myStepper2.setSpeed(1000);
+    //myStepper1.runSpeed();
+    //myStepper2.runSpeed();
+  }
+  else if(read_ch_5 < 50)
+  {
+    
+    myStepper1.setSpeed(0);
+    //myStepper2.setSpeed(0);
+  }
+*/
+
+/*
+  //MOTOR ONLY SWITCH
+  if(read_ch_6 > 150)
+  {
+    motor.writeMicroseconds(1950); //clockwise //1600
+  }
+  else if(read_ch_6 < 50)
+  {
+    motor.writeMicroseconds(1500); //stop
+    //delay(1000);
+    //motor.writeMicroseconds(1050); //counter-clockwise
+  }
+  */
+
+/*
+  if(read_ch_7 > 150)
+  {
+      myStepper2.setMaxSpeed(1000);
+      myStepper2.setAcceleration(50);
+      myStepper2.setSpeed(100);
+
+      myStepper1.setMaxSpeed(1000);
+      myStepper1.setAcceleration(50);
+      myStepper1.setSpeed(100);
+      
+      myStepper2.moveTo(-80);//-100
+      myStepper1.moveTo(-80);//-100
+
+      myStepper2.run();
+      myStepper1.run();
+  }
+  else if(read_ch_7 < 50)
+  {
+    //motor.writeMicroseconds(1500); //stop
+    //delay(1000);
+    //motor.writeMicroseconds(1050); //counter-clockwise
+  }
+  */
+  
+}
+  
+void count_rpm(){
+    pulse++;
+  }
